@@ -18,7 +18,7 @@
 #include <mutex>
 
 #include "ScanProgress.hpp"
-#include "NiDriver.h"
+#include "ParadiseTypes.h"
 
 
 #define VQE_PAGEDONLY 1

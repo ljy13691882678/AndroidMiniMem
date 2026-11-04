@@ -91,6 +91,7 @@ target_include_directories(common_interface INTERFACE
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_SOURCE_DIR}/android
     ${CMAKE_SOURCE_DIR}/ceserver
+    ${CMAKE_SOURCE_DIR}/third_party/paradise
 )
 
 target_compile_definitions(common_interface INTERFACE
@@ -110,17 +111,28 @@ target_link_libraries(common_interface INTERFACE
 
 # ----------------------------------------------------------------------------
 # 服务器核心静态库
-#   CE 协议分发(CEServer/porthelp) + API 实现(api) + 内核读写驱动(AndroidKernelDriver)
+#   CE 协议分发(CEServer/porthelp) + API 实现(api) + Paradise 驱动封装
 # ----------------------------------------------------------------------------
 add_library(server_core STATIC
     ${CMAKE_SOURCE_DIR}/ceserver/CEServer.cpp
     ${CMAKE_SOURCE_DIR}/ceserver/porthelp.cpp
     ${CMAKE_SOURCE_DIR}/ceserver/api.cpp
-    ${CMAKE_SOURCE_DIR}/android/NiDriver.cpp
-    ${CMAKE_SOURCE_DIR}/android/AndroidKernelDriver.cpp
+    ${CMAKE_SOURCE_DIR}/android/ParadiseKernelDriver.cpp
 )
 
-target_link_libraries(server_core PUBLIC common_interface)
+# Paradise SDK 是 aarch64 预编译静态库（libparadise_api.a），随仓库存放，
+# 由 NDK clang 直接链接；不产出共享库，避免运行时多一个依赖文件。
+set(PARADISE_SDK_DIR ${CMAKE_SOURCE_DIR}/third_party/paradise)
+set(PARADISE_SDK_LIB ${PARADISE_SDK_DIR}/libparadise_api.a)
+
+if(NOT EXISTS ${PARADISE_SDK_LIB})
+    message(FATAL_ERROR "Paradise SDK 缺失：${PARADISE_SDK_LIB}")
+endif()
+
+target_link_libraries(server_core PUBLIC
+    common_interface
+    ${PARADISE_SDK_LIB}
+)
 
 # ----------------------------------------------------------------------------
 # Strip 辅助函数

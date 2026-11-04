@@ -4,6 +4,7 @@
 
 # ---- 构建目录 ----
 build/
+build-*/
 build_test/
 out/
 

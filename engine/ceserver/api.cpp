@@ -37,10 +37,10 @@
 
 //#include "AndroidMemoryIO.hpp"//pread mem
 #include "AndroidMemorySys.hpp"//sys_process_vm_readv
-#include "AndroidMemKernel.hpp"//ko
-#include "AndroidKernelDriver.h"//硬件断点驱动（KernelDriver 单例）
+#include "AndroidMemParadise.hpp"//Paradise 内核读写通道
+#include "ParadiseKernelDriver.h"//Paradise 驱动（KernelDriver 单例）
 #include "PerfHwBreakpoint.hpp"//用户态 perf_event_open 硬件断点引擎（非内核模式回退）
-#include "KernelHwBreakpoint.hpp"//内核驱动断点的进程级封装（自动跟随新线程）
+#include "ParadiseHwBreakpoint.hpp"//Paradise 断点的进程级封装
 
 #include "AndroidTracer.hpp"
 #include "AndroidElfScanner.hpp"
@@ -51,7 +51,7 @@
 //todo:support more process
 static std::atomic<int> g_pid{0};
 std::unique_ptr<IMemoryOp> g_memIO = std::make_unique<AndroidMemorySys>();
-//std::unique_ptr<IMemoryOp> g_memIO = std::make_unique<AndroidMemKernel>();
+//std::unique_ptr<IMemoryOp> g_memIO = std::make_unique<AndroidMemParadise>();
 std::unique_ptr<AndroidTracer> g_tracer = std::make_unique<AndroidTracer>();
 std::unique_ptr<AndroidElfScanner> g_sym = std::make_unique<AndroidElfScanner>();
 
@@ -148,7 +148,7 @@ BOOL CApi::InitReadWriteDriver(const char *procNodeAuthKey,
   out_result = "加载模块失败";
   g_kernelBreakpointForceReclaim.store(false, std::memory_order_release);
 
-  // 若内核驱动连接仍然有效，说明已处于内核模式，直接复用，不重建 AndroidMemKernel。
+  // 若内核驱动连接仍然有效，说明已处于内核模式，直接复用，不重建 AndroidMemParadise。
   // 注意：不能用 g_memIO->type 判断（该字段可能被前端改写），驱动连接状态（m_nFd）
   // 才是唯一可靠依据。否则下方 g_memIO = std::move(memKernel) 会析构旧内核对象，
   // 其析构调用 Disconnect() 关掉全局共享内核驱动 fd
@@ -164,7 +164,7 @@ BOOL CApi::InitReadWriteDriver(const char *procNodeAuthKey,
 }
 
   // 先尝试通过 anon_fd 连接驱动
-  std::unique_ptr<AndroidMemKernel> memKernel = std::make_unique<AndroidMemKernel>();
+  std::unique_ptr<AndroidMemParadise> memKernel = std::make_unique<AndroidMemParadise>();
   if (memKernel->connect()) {
     // 连接成功
     {
@@ -183,100 +183,14 @@ BOOL CApi::InitReadWriteDriver(const char *procNodeAuthKey,
     return 2;
   }
 
-  LOGDF("InitReadWriteDriver: NI driver not loaded, trying to load NI.ko...");
-
-  std::string procNodeAuthKeyStr = procNodeAuthKey ? std::string(procNodeAuthKey) : std::string();
-  std::string card = procNodeAuthKeyStr;
-  size_t pos = procNodeAuthKeyStr.find_last_of("-");
-  if (pos != std::string::npos) {
-    card = procNodeAuthKeyStr.substr(0, pos);
-  }
-
-  std::string localPath = GetLocalPath();
-  std::vector<std::string> moduleCandidates = {
-      localPath + "/NI.ko",
-      "/data/local/tmp/NI.ko",
-  };
-
-  std::string niPath;
-  for (const auto& candidate : moduleCandidates) {
-    if (!candidate.empty() && access(candidate.c_str(), F_OK) == 0) {
-      niPath = candidate;
-      break;
-    }
-  }
-
-  if (niPath.empty()) {
-    out_result = "NI.ko 不存在";
-    LOGEF("InitReadWriteDriver: NI.ko not found");
-    return FALSE;
-  }
-
-  auto loadNiModule = [&](const std::string& params, int& savedErrno) -> int {
-    int fd = open(niPath.c_str(), O_RDONLY);
-    if (fd < 0) {
-      savedErrno = errno;
-      return -1;
-    }
-    errno = 0;
-    int ret = syscall(SYS_finit_module, fd, params.c_str(), 0);
-    savedErrno = errno;
-    close(fd);
-    return ret;
-  };
-
-  std::vector<std::string> paramAttempts;
-  if (!card.empty()) {
-    paramAttempts.push_back("card=" + card);
-  }
-  paramAttempts.emplace_back();
-
-  int saved_errno = 0;
-  int ret = -1;
-  std::string usedParams;
-  for (const auto& params : paramAttempts) {
-    ret = loadNiModule(params, saved_errno);
-    usedParams = params;
-    if (ret == 0 || saved_errno == EEXIST) {
-      break;
-    }
-  }
-
-  if (ret != 0 && saved_errno != EEXIST) {
-    std::string err_msg = "加载 NI.ko 失败: ";
-    err_msg += strerror(saved_errno);
-    err_msg += " code " + std::to_string(saved_errno);
-    out_result = err_msg;
-    LOGEF("InitReadWriteDriver: NI.ko load failed(%d): %s", saved_errno, err_msg.c_str());
-    return FALSE;
-  }
-
-  out_result = "加载 NI.ko 成功";
-  LOGDF("InitReadWriteDriver: NI.ko loaded from %s params=%s",
-        niPath.c_str(), usedParams.empty() ? "<empty>" : "<redacted>");
-
-  // 模块加载成功后，再尝试连接
-  memKernel = std::make_unique<AndroidMemKernel>();
-  if (!memKernel->connect()) {
-    out_result = "NI 驱动连接失败";
-    LOGEF("InitReadWriteDriver: NI driver connect failed after load");
-    return FALSE;
-  }
-
-  {
-    std::unique_lock<std::shared_mutex> wlock(g_globalMutex);
-    g_memIO = std::move(memKernel);
-  }
-
-  uint64_t cardTime = 0;
-  {
-    std::shared_lock<std::shared_mutex> rlock(g_globalMutex);
-    g_memIO->GetCardTime(cardTime);
-  }
-  out_result = std::to_string(cardTime);
-  ClearKernelLog();
-
-  return 1;
+  // Paradise 走 reboot syscall 的 anon_fd 通道（__NR_reboot + 魔数），
+  // 不依赖 .ko 文件路径，也不需要 finit_module —— 驱动由外部 loader 预置。
+  // 连接失败只可能是：驱动未加载、内核版本不匹配、或 SELinux 拦截了 syscall。
+  // 另外 Paradise 没有卡密/有效期概念，procNodeAuthKey 在这里不使用。
+  (void)procNodeAuthKey;
+  LOGEF("InitReadWriteDriver: paradise driver unavailable via anon_fd");
+  out_result = "Paradise 驱动未加载";
+  return FALSE;
 }
 
 unsigned char CApi::GetRWDriverType() {
@@ -575,8 +489,8 @@ void CApi::CloseHandle(HANDLE h) {
 				for (auto hwhandle : kv.second) {
 					if (PerfHwBreakpoint::Get().Owns(hwhandle)) {
 						PerfHwBreakpoint::Get().DelProcessHwBp(hwhandle);
-					} else if (KernelHwBreakpoint::Get().Owns(hwhandle)) {
-						KernelHwBreakpoint::Get().DelProcessHwBp(hwhandle);
+					} else if (ParadiseHwBreakpoint::Get().Owns(hwhandle)) {
+						ParadiseHwBreakpoint::Get().DelProcessHwBp(hwhandle);
 					}
 				}
 			}
@@ -924,7 +838,7 @@ int CApi::SetBreakpoint(HANDLE hProcess, uint64_t address, int bpType, int bpSiz
 	// 两种后端均为"进程级逻辑断点"：引擎内部遍历目标线程并周期 rescan 跟随新建线程，各返回单个逻辑 handle
 	std::vector<uint64_t> HwBpHandle;
 	uint64_t hwBpHandle = useKernel
-		? KernelHwBreakpoint::Get().AddProcessHwBp(
+		? ParadiseHwBreakpoint::Get().AddProcessHwBp(
 			processdata->pid, address, len, bpType, forceReclaim)
 		: PerfHwBreakpoint::Get().AddProcessHwBp(processdata->pid, address, len, bpType);
 	if (hwBpHandle != 0) {
@@ -945,10 +859,12 @@ int CApi::SetBreakpoint(HANDLE hProcess, uint64_t address, int bpType, int bpSiz
 		}
 		processdata->mHwBpList[address] = HwBpHandle;
 	}
-	// 删除旧 handle 时按归属分发（perf / 内核驱动）
+	// 删除旧 handle 时按归属分发（perf / Paradise 逻辑断点 / 驱动原生 handle）
 	for (auto hwhandle : oldHandles) {
 		if (PerfHwBreakpoint::Get().Owns(hwhandle)) {
 			PerfHwBreakpoint::Get().DelProcessHwBp(hwhandle);
+		} else if (ParadiseHwBreakpoint::Get().Owns(hwhandle)) {
+			ParadiseHwBreakpoint::Get().DelProcessHwBp(hwhandle);
 		} else {
 			KernelDriver().RemoveHardwareBreakpoint(hwhandle);
 		}
@@ -988,8 +904,8 @@ int CApi::RemoveBreakpoint(HANDLE hProcess,uint64_t hwaddr){
 		for (auto hwhandle : handles) {
 			if (PerfHwBreakpoint::Get().Owns(hwhandle)) {
 				PerfHwBreakpoint::Get().DelProcessHwBp(hwhandle);
-			} else if (KernelHwBreakpoint::Get().Owns(hwhandle)) {
-				KernelHwBreakpoint::Get().DelProcessHwBp(hwhandle);
+			} else if (ParadiseHwBreakpoint::Get().Owns(hwhandle)) {
+				ParadiseHwBreakpoint::Get().DelProcessHwBp(hwhandle);
 			} else {
 				KernelDriver().RemoveHardwareBreakpoint(hwhandle);
 			}
@@ -1027,8 +943,8 @@ int CApi::SuspendBreakpoint(HANDLE hProcess,uint64_t hwaddr){
 		for (auto hwhandle : handles) {
 			if (PerfHwBreakpoint::Get().Owns(hwhandle)) {
 				PerfHwBreakpoint::Get().SuspendProcessHwBp(hwhandle);
-			} else if (KernelHwBreakpoint::Get().Owns(hwhandle)) {
-				KernelHwBreakpoint::Get().SuspendProcessHwBp(hwhandle);
+			} else if (ParadiseHwBreakpoint::Get().Owns(hwhandle)) {
+				ParadiseHwBreakpoint::Get().SuspendProcessHwBp(hwhandle);
 			} else {
 				KernelDriver().DisableHardwareBreakpoint(hwhandle);
 			}
@@ -1067,8 +983,8 @@ int CApi::ResumeBreakpoint(HANDLE hProcess,uint64_t hwaddr){
 		for (auto hwhandle : handles) {
 			if (PerfHwBreakpoint::Get().Owns(hwhandle)) {
 				PerfHwBreakpoint::Get().ResumeProcessHwBp(hwhandle);
-			} else if (KernelHwBreakpoint::Get().Owns(hwhandle)) {
-				KernelHwBreakpoint::Get().ResumeProcessHwBp(hwhandle);
+			} else if (ParadiseHwBreakpoint::Get().Owns(hwhandle)) {
+				ParadiseHwBreakpoint::Get().ResumeProcessHwBp(hwhandle);
 			} else {
 				KernelDriver().EnableHardwareBreakpoint(hwhandle);
 			}
@@ -1118,8 +1034,8 @@ int CApi::ReadHwBpInfo(HANDLE hProcess,uint64_t hwaddr,uint64_t& nHitTotalCount,
 		// 按归属分发：perf 引擎 / 内核驱动
 		bool ok = PerfHwBreakpoint::Get().Owns(hwhandle)
 			? PerfHwBreakpoint::Get().ReadHwBpInfo(hwhandle, hitCount, vHandleHwBpInfo)
-			: KernelHwBreakpoint::Get().Owns(hwhandle)
-				? KernelHwBreakpoint::Get().ReadHwBpInfo(hwhandle, hitCount, vHandleHwBpInfo)
+			: ParadiseHwBreakpoint::Get().Owns(hwhandle)
+				? ParadiseHwBreakpoint::Get().ReadHwBpInfo(hwhandle, hitCount, vHandleHwBpInfo)
 				: KernelDriver().ReadHardwareBreakpointInfo(hwhandle, hitCount, vHandleHwBpInfo);
 		if (!ok) {
 			continue;
