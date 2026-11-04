@@ -4,7 +4,7 @@
       "command": "python",
       "args": ["-m", "minimem_mcp"],
       "env": {
-        "PYTHONPATH": "D:/AndroidMEM/AndroidMiniMem/mcp"
+        "PYTHONPATH": "mcp"
       }
     }
   }

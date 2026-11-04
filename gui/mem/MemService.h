@@ -98,6 +98,22 @@ public:
         const OperationContext& context,
         const SymbolResolveRequest& request) override;
 
+    // ── 内存扫描 / 地址分析 ──────────────────────────────────────────
+    Result<ScanState> scanFirst(
+        const OperationContext& context,
+        const ScanFirstRequest& request) override;
+    Result<ScanState> scanNext(
+        const OperationContext& context,
+        const ScanNextRequest& request) override;
+    Result<ScanPage> scanResults(
+        const OperationContext& context,
+        const ScanResultsRequest& request) override;
+    Result<ScanState> scanClear(
+        const OperationContext& context) override;
+    Result<AddressInfo> addressInfo(
+        const OperationContext& context,
+        const AddressInfoRequest& request) override;
+
 private:
     std::optional<Error> validateContext(
         const OperationContext& context,

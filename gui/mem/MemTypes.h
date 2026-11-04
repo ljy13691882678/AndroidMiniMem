@@ -501,4 +501,63 @@ inline constexpr uint32_t kMaxUxnWaitTimeoutMs = 60000;
 inline constexpr size_t kMaxTextBytes = 4096;
 inline constexpr size_t kMaxDriverCardBytes = 4096;
 
+// ── 内存扫描 / 地址分析 ──────────────────────────────────────────────
+inline constexpr uint32_t kMaxScanPageSize = 4096;
+
+struct ScanFirstRequest {
+    uint32_t valueType = 4;       // 1/2/4/8 整型宽度，100=float，101=double
+    uint32_t scanMode = 0;        // 0 精确 1 大于 2 小于 3 未知初值
+    uint32_t alignment = 4;
+    uint32_t regionFilter = 0;    // 0 仅可写区域，1 全部可读区域
+    uint64_t intValue = 0;
+    double floatValue = 0.0;
+    uint64_t maxResults = 0;      // 0 表示用引擎默认上限
+};
+
+struct ScanNextRequest {
+    uint32_t scanMode = 0;        // 4 未变 5 变化 6 增加 7 减少 0 精确 1 大于 2 小于
+    uint64_t intValue = 0;
+    double floatValue = 0.0;
+};
+
+struct ScanResultsRequest {
+    uint64_t offset = 0;
+    uint32_t count = 100;
+};
+
+struct ScanEntry {
+    uint64_t address = 0;
+    uint64_t intValue = 0;
+    double floatValue = 0.0;
+};
+
+struct ScanState {
+    uint64_t total = 0;
+    uint32_t valueType = 0;
+    uint32_t scanMode = 0;
+};
+
+struct ScanPage {
+    std::vector<ScanEntry> items;
+    uint64_t total = 0;
+    uint32_t valueType = 0;
+    TargetSnapshot target;
+};
+
+struct AddressInfoRequest {
+    uint64_t address = 0;
+};
+
+struct AddressInfo {
+    uint64_t address = 0;
+    uint64_t moduleBase = 0;
+    uint64_t moduleSize = 0;
+    uint64_t offset = 0;
+    uint64_t regionBase = 0;
+    uint64_t regionSize = 0;
+    std::string moduleName;
+    std::string perms;
+    TargetSnapshot target;
+};
+
 } // namespace Mem

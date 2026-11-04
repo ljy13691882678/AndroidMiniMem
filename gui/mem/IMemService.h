@@ -82,6 +82,22 @@ public:
         const UxnStatusRequest& request) = 0;
     virtual Result<UxnClearReceipt> clearUxnBreakpoints(
         const OperationContext& context) = 0;
+
+    // ── 内存扫描 / 地址分析 ──────────────────────────────────────────
+    virtual Result<ScanState> scanFirst(
+        const OperationContext& context,
+        const ScanFirstRequest& request) = 0;
+    virtual Result<ScanState> scanNext(
+        const OperationContext& context,
+        const ScanNextRequest& request) = 0;
+    virtual Result<ScanPage> scanResults(
+        const OperationContext& context,
+        const ScanResultsRequest& request) = 0;
+    virtual Result<ScanState> scanClear(
+        const OperationContext& context) = 0;
+    virtual Result<AddressInfo> addressInfo(
+        const OperationContext& context,
+        const AddressInfoRequest& request) = 0;
     virtual Result<SymbolTable> loadSymbolTable(
         const OperationContext& context,
         const SymbolTableRequest& request) = 0;

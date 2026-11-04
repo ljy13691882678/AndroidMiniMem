@@ -285,10 +285,23 @@ public:
 
 
 // ELF 符号解析
-static int SymbolInit(HANDLE hProcess, uint64_t moduleBase);
-static int SymbolGetCount();
-static std::vector<std::pair<uintptr_t, std::string>> SymbolGetList(int offset, int count);
-static uintptr_t SymbolFind(HANDLE hProcess, uint64_t moduleBase, const std::string& name);
+	static int SymbolInit(HANDLE hProcess, uint64_t moduleBase);
+	static int SymbolGetCount();
+	static std::vector<std::pair<uintptr_t, std::string>> SymbolGetList(int offset, int count);
+	static uintptr_t SymbolFind(HANDLE hProcess, uint64_t moduleBase, const std::string& name);
+
+	// 内存扫描 / 地址分析
+	static bool ScanFirst(HANDLE hProcess, const CeScanFirstInput& input,
+	                      uint64_t& total, int& errorCode);
+	static bool ScanNext(const CeScanNextInput& input, uint64_t& total,
+	                     int& errorCode);
+	static uint32_t ScanResults(const CeScanResultsInput& input,
+	                            std::vector<CeScanResultEntry>& output,
+	                            uint64_t& totalOut,
+	                            uint32_t& valueTypeOut);
+	static void ScanClear();
+	static bool AddressInfo(HANDLE hProcess, const CeAddressInfoInput& input,
+	                        CeAddressInfoOutput& output);
 
 protected:
 };

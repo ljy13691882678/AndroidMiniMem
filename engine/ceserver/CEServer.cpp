@@ -680,6 +680,97 @@ int DispatchCommand_V2(Ioserver *IOserver, unsigned char command) {
     break;
   }
 
+  // ── 内存扫描 / 地址分析 ──────────────────────────────────────────────
+  case CMD_SCAN_FIRST: {
+    LOGD("CMD_SCAN_FIRST");
+    HANDLE h = 0;
+    IOserver->Receive(&h, sizeof(HANDLE));
+    CeScanFirstInput input{};
+    IOserver->Receive(&input, sizeof(input));
+
+    uint64_t total = 0;
+    int errorCode = 0;
+    const bool ok = CApi::ScanFirst(h, input, total, errorCode);
+
+    int result = ok ? 1 : 0;
+    int32_t err = static_cast<int32_t>(errorCode);
+    IOserver->Send(&result, sizeof(int));
+    IOserver->Send(&err, sizeof(err));
+    IOserver->Send(&total, sizeof(uint64_t));
+    LOGDF("CMD_SCAN_FIRST ok=%d err=%d total=%llu", result, err,
+          static_cast<unsigned long long>(total));
+    break;
+  }
+
+  case CMD_SCAN_NEXT: {
+    LOGD("CMD_SCAN_NEXT");
+    CeScanNextInput input{};
+    IOserver->Receive(&input, sizeof(input));
+
+    uint64_t total = 0;
+    int errorCode = 0;
+    const bool ok = CApi::ScanNext(input, total, errorCode);
+
+    int result = ok ? 1 : 0;
+    int32_t err = static_cast<int32_t>(errorCode);
+    IOserver->Send(&result, sizeof(int));
+    IOserver->Send(&err, sizeof(err));
+    IOserver->Send(&total, sizeof(uint64_t));
+    LOGDF("CMD_SCAN_NEXT ok=%d err=%d total=%llu", result, err,
+          static_cast<unsigned long long>(total));
+    break;
+  }
+
+  case CMD_SCAN_RESULTS: {
+    LOGD("CMD_SCAN_RESULTS");
+    CeScanResultsInput input{};
+    IOserver->Receive(&input, sizeof(input));
+
+    std::vector<CeScanResultEntry> entries;
+    uint64_t total = 0;
+    uint32_t valueType = 0;
+    const uint32_t count = CApi::ScanResults(input, entries, total, valueType);
+    IOserver->Send(&count, sizeof(uint32_t));
+    IOserver->Send(&total, sizeof(uint64_t));
+    IOserver->Send(&valueType, sizeof(uint32_t));
+    for (const auto& entry : entries) {
+      if (!IOserver->Send(&entry, sizeof(entry))) {
+        break;
+      }
+    }
+    LOGDF("CMD_SCAN_RESULTS offset=%llu requested=%u returned=%u",
+          static_cast<unsigned long long>(input.offset), input.count, count);
+    break;
+  }
+
+  case CMD_SCAN_CLEAR: {
+    LOGD("CMD_SCAN_CLEAR");
+    CApi::ScanClear();
+    int result = 1;
+    IOserver->Send(&result, sizeof(int));
+    break;
+  }
+
+  case CMD_ADDRESS_INFO: {
+    LOGD("CMD_ADDRESS_INFO");
+    HANDLE h = 0;
+    IOserver->Receive(&h, sizeof(HANDLE));
+    CeAddressInfoInput input{};
+    IOserver->Receive(&input, sizeof(input));
+
+    CeAddressInfoOutput out{};
+    const bool ok = CApi::AddressInfo(h, input, out);
+    int result = ok ? 1 : 0;
+    IOserver->Send(&result, sizeof(int));
+    IOserver->Send(&out, sizeof(out));
+    LOGDF("CMD_ADDRESS_INFO addr=0x%llx ok=%d module=%s base=0x%llx offset=0x%llx",
+          static_cast<unsigned long long>(input.address), result,
+          out.moduleName,
+          static_cast<unsigned long long>(out.moduleBase),
+          static_cast<unsigned long long>(out.offset));
+    break;
+  }
+
   case CMD_READBRATCHADDR: {
     LOGD("CMD_READBRATCHADDR");
     HANDLE h = 0;

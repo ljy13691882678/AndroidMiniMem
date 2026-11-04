@@ -1735,4 +1735,143 @@ Result<ResolvedSymbol> MemService::resolveSymbol(
                        *context.target});
 }
 
+// ── 内存扫描 / 地址分析 ──────────────────────────────────────────────
+
+namespace {
+
+bool isValidScanValueType(uint32_t type) {
+    return type == 1 || type == 2 || type == 4 || type == 8 ||
+           type == 100 || type == 101;
+}
+
+} // namespace
+
+Result<ScanState> MemService::scanFirst(
+    const OperationContext& context,
+    const ScanFirstRequest& request) {
+    if (!isValidScanValueType(request.valueType)) {
+        return Result<ScanState>::failure(
+            ErrorCode::InvalidArgument, "unsupported scan value type");
+    }
+    if (request.alignment != 1 && request.alignment != 2 &&
+        request.alignment != 4 && request.alignment != 8) {
+        return Result<ScanState>::failure(
+            ErrorCode::InvalidArgument, "alignment must be 1, 2, 4 or 8");
+    }
+    if (request.scanMode > 3u) {
+        return Result<ScanState>::failure(
+            ErrorCode::InvalidArgument, "unsupported first-scan mode");
+    }
+    if (const auto error = validateContext(context, true, true, true)) {
+        return failureFrom<ScanState>(*error);
+    }
+
+    uint64_t total = 0;
+    if (!backend_.scanFirst(context, request, total)) {
+        if (const auto error = validateContext(context, true, true, false)) {
+            return failureFrom<ScanState>(*error);
+        }
+        return Result<ScanState>::failure(
+            ErrorCode::ProtocolError, "first scan failed", true);
+    }
+    return Result<ScanState>::success(
+        ScanState{total, request.valueType, request.scanMode});
+}
+
+Result<ScanState> MemService::scanNext(
+    const OperationContext& context,
+    const ScanNextRequest& request) {
+    if (request.scanMode > 7u) {
+        return Result<ScanState>::failure(
+            ErrorCode::InvalidArgument, "unsupported next-scan mode");
+    }
+    if (const auto error = validateContext(context, true, true, true)) {
+        return failureFrom<ScanState>(*error);
+    }
+
+    uint64_t total = 0;
+    if (!backend_.scanNext(context, request, total)) {
+        if (const auto error = validateContext(context, true, true, false)) {
+            return failureFrom<ScanState>(*error);
+        }
+        return Result<ScanState>::failure(
+            ErrorCode::ProtocolError, "next scan failed", true);
+    }
+    return Result<ScanState>::success(
+        ScanState{total, 0, request.scanMode});
+}
+
+Result<ScanPage> MemService::scanResults(
+    const OperationContext& context,
+    const ScanResultsRequest& request) {
+    if (request.count == 0 || request.count > kMaxScanPageSize) {
+        return Result<ScanPage>::failure(
+            ErrorCode::InvalidArgument, "scan result count is out of range");
+    }
+    if (const auto error = validateContext(context, true, true, true)) {
+        return failureFrom<ScanPage>(*error);
+    }
+
+    std::vector<ScanEntry> entries;
+    uint64_t total = 0;
+    uint32_t valueType = 0;
+    if (!backend_.scanResults(context, request, entries, total, valueType)) {
+        if (const auto error = validateContext(context, true, true, false)) {
+            return failureFrom<ScanPage>(*error);
+        }
+        return Result<ScanPage>::failure(
+            ErrorCode::ProtocolError, "scan results failed", true);
+    }
+    if (const auto error = validateContext(context, true, true, true)) {
+        return failureFrom<ScanPage>(*error);
+    }
+    ScanPage page;
+    page.items = std::move(entries);
+    page.total = total;
+    page.valueType = valueType;
+    page.target = *context.target;
+    return Result<ScanPage>::success(std::move(page));
+}
+
+Result<ScanState> MemService::scanClear(const OperationContext& context) {
+    if (const auto error = validateContext(context, true, false, true)) {
+        return failureFrom<ScanState>(*error);
+    }
+
+    if (!backend_.scanClear(context)) {
+        if (const auto error = validateContext(context, true, false, false)) {
+            return failureFrom<ScanState>(*error);
+        }
+        return Result<ScanState>::failure(
+            ErrorCode::ProtocolError, "scan clear failed", true);
+    }
+    return Result<ScanState>::success(ScanState{0, 0, 0});
+}
+
+Result<AddressInfo> MemService::addressInfo(
+    const OperationContext& context,
+    const AddressInfoRequest& request) {
+    if (request.address == 0) {
+        return Result<AddressInfo>::failure(
+            ErrorCode::InvalidArgument, "address must be non-zero");
+    }
+    if (const auto error = validateContext(context, true, true, true)) {
+        return failureFrom<AddressInfo>(*error);
+    }
+
+    AddressInfo info;
+    if (!backend_.addressInfo(context, request.address, info)) {
+        if (const auto error = validateContext(context, true, true, false)) {
+            return failureFrom<AddressInfo>(*error);
+        }
+        return Result<AddressInfo>::failure(
+            ErrorCode::ProtocolError, "address info failed", true);
+    }
+    if (const auto error = validateContext(context, true, true, true)) {
+        return failureFrom<AddressInfo>(*error);
+    }
+    info.target = *context.target;
+    return Result<AddressInfo>::success(std::move(info));
+}
+
 } // namespace Mem

@@ -68,6 +68,13 @@
 #define CMD_KERNEL_UXN_STATUS        28
 #define CMD_KERNEL_UXN_CLEAR         29
 
+// —— 内存扫描 / 地址分析（AI 与 GUI 共用）——
+#define CMD_SCAN_FIRST               30  // 首次扫描，建立候选地址集
+#define CMD_SCAN_NEXT                31  // 再次扫描，按变化模式过滤候选
+#define CMD_SCAN_RESULTS             32  // 分页取候选地址与当前值
+#define CMD_SCAN_CLEAR               33  // 清空扫描会话
+#define CMD_ADDRESS_INFO             34  // 地址反查：所属模块、模块基址、偏移、区域权限
+
 // ============================================================================
 // 协议结构体
 // ============================================================================
@@ -132,6 +139,82 @@ struct CeWriteProcessMemoryInput {
 
 struct CeWriteProcessMemoryOutput {
 	int32_t written;
+};
+
+// ============================================================================
+// 内存扫描 / 地址分析（CMD_SCAN_* / CMD_ADDRESS_INFO）
+// ----------------------------------------------------------------------------
+// 全部为 POD，可直接放进 pack(1) 区域，与其它协议结构保持一致的线格式约定。
+// 值统一用 intValue(64 位整数解释) + floatValue(浮点解释) 双字段承载，
+// 由 valueType 决定读哪一份，避免客户端再做类型分叉。
+// ============================================================================
+
+// 扫描值类型：与内存宽度直接对应，>=100 表示浮点
+#define CE_SCAN_TYPE_BYTE    1
+#define CE_SCAN_TYPE_WORD    2
+#define CE_SCAN_TYPE_DWORD   4
+#define CE_SCAN_TYPE_QWORD   8
+#define CE_SCAN_TYPE_FLOAT   100
+#define CE_SCAN_TYPE_DOUBLE  101
+
+// 扫描模式（首次只接受 EXACT / UNKNOWN，其余留给再次扫描）
+#define CE_SCAN_EXACT        0
+#define CE_SCAN_BIGGER       1
+#define CE_SCAN_SMALLER      2
+#define CE_SCAN_UNKNOWN      3
+#define CE_SCAN_UNCHANGED    4
+#define CE_SCAN_CHANGED      5
+#define CE_SCAN_INCREASED    6
+#define CE_SCAN_DECREASED    7
+
+// 区域过滤：0=仅可写区域（堆/栈/匿名映射），1=全部可读区域（含文件映射）
+#define CE_SCAN_REGION_WRITABLE 0
+#define CE_SCAN_REGION_READABLE 1
+
+struct CeScanFirstInput {
+	uint32_t valueType;     // CE_SCAN_TYPE_*
+	uint32_t scanMode;      // CE_SCAN_EXACT / CE_SCAN_UNKNOWN
+	uint32_t alignment;     // 1/2/4/8，0 表示按值宽度
+	uint32_t regionFilter;  // CE_SCAN_REGION_*
+	uint64_t intValue;
+	double   floatValue;
+	uint64_t maxResults;    // 0 表示用引擎默认上限
+};
+
+struct CeScanNextInput {
+	uint32_t scanMode;      // CE_SCAN_*
+	uint32_t reserved;
+	uint64_t intValue;
+	double   floatValue;
+};
+
+struct CeScanResultsInput {
+	uint64_t offset;
+	uint32_t count;
+	uint32_t reserved;
+};
+
+struct CeScanResultEntry {
+	uint64_t address;
+	uint64_t intValue;
+	double   floatValue;
+};
+
+struct CeAddressInfoInput {
+	uint64_t address;
+};
+
+struct CeAddressInfoOutput {
+	uint64_t address;
+	uint64_t moduleBase;    // 仅当命中模块区间时有效
+	uint64_t moduleSize;
+	uint64_t offset;        // address - moduleBase
+	uint64_t regionBase;
+	uint64_t regionSize;
+	char     moduleName[256];
+	char     perms[8];
+	uint32_t valueType;
+	uint32_t reserved;
 };
 
 // ELF 符号初始化输入 (CMD_SYMBOL_INIT)

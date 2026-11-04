@@ -389,6 +389,36 @@ public:
         ++uxnClearCalls;
         return uxnResult;
     }
+
+    // ── 扫描 / 地址分析（测试桩，不参与既有断言）────────────────
+    bool scanFirst(const Mem::OperationContext&,
+                   const Mem::ScanFirstRequest&,
+                   uint64_t& total) override {
+        total = 0;
+        return false;
+    }
+    bool scanNext(const Mem::OperationContext&,
+                  const Mem::ScanNextRequest&,
+                  uint64_t& total) override {
+        total = 0;
+        return false;
+    }
+    bool scanResults(const Mem::OperationContext&,
+                     const Mem::ScanResultsRequest&,
+                     std::vector<Mem::ScanEntry>& entries,
+                     uint64_t& total,
+                     uint32_t& valueType) override {
+        entries.clear();
+        total = 0;
+        valueType = 0;
+        return false;
+    }
+    bool scanClear(const Mem::OperationContext&) override { return false; }
+    bool addressInfo(const Mem::OperationContext&,
+                     uint64_t,
+                     Mem::AddressInfo&) override {
+        return false;
+    }
 };
 
 FakeReadTransaction::FakeReadTransaction(FakeBackend& backend)

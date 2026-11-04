@@ -30,6 +30,7 @@
 #include <condition_variable>
 #include "LinuxProc.hpp"
 #include "Logger.hpp"
+#include "ScanEngine.h"
 #include "ceserver.h"
 #include "porthelp.h"
 #include <sys/syscall.h>
@@ -1397,4 +1398,119 @@ uintptr_t CApi::SymbolFind(HANDLE hProcess, uint64_t moduleBase, const std::stri
 		}
 	}
 	return 0;
+}
+
+//================内存扫描 / 地址分析================
+
+namespace {
+
+// 从进程句柄取出 pid；失败返回 0
+int GetPidFromHandle(HANDLE hProcess) {
+	if (CPortHelper::GetHandleType(hProcess) != htProcesHandle) {
+		return 0;
+	}
+	uint64_t pl = CPortHelper::GetPointerFromHandle(hProcess);
+	if (pl == 0) {
+		return 0;
+	}
+	CeOpenProcess* process = reinterpret_cast<CeOpenProcess*>(pl);
+	if (!process || process->pid <= 0) {
+		return 0;
+	}
+	return process->pid;
+}
+
+}  // namespace
+
+bool CApi::ScanFirst(HANDLE hProcess, const CeScanFirstInput& input,
+                     uint64_t& total, int& errorCode) {
+	total = 0;
+	errorCode = 0;
+	const int pid = GetPidFromHandle(hProcess);
+	if (pid <= 0) {
+		errorCode = ESRCH;
+		return false;
+	}
+
+	std::shared_lock<std::shared_mutex> rlock(g_globalMutex);
+	return ScanEngine::Get().FirstScan(g_memIO.get(), pid, input, total, errorCode);
+}
+
+bool CApi::ScanNext(const CeScanNextInput& input, uint64_t& total, int& errorCode) {
+	total = 0;
+	errorCode = 0;
+
+	std::shared_lock<std::shared_mutex> rlock(g_globalMutex);
+	return ScanEngine::Get().NextScan(g_memIO.get(), input, total, errorCode);
+}
+
+uint32_t CApi::ScanResults(const CeScanResultsInput& input,
+                           std::vector<CeScanResultEntry>& output,
+                           uint64_t& totalOut,
+                           uint32_t& valueTypeOut) {
+	totalOut = ScanEngine::Get().Total();
+	valueTypeOut = ScanEngine::Get().SessionValueType();
+	return ScanEngine::Get().Results(input, output);
+}
+
+void CApi::ScanClear() {
+	ScanEngine::Get().Clear();
+}
+
+bool CApi::AddressInfo(HANDLE hProcess, const CeAddressInfoInput& input,
+                       CeAddressInfoOutput& output) {
+	output = {};
+	output.address = input.address;
+	if (input.address == 0) {
+		return false;
+	}
+	if (GetPidFromHandle(hProcess) <= 0) {
+		return false;
+	}
+
+	// 区域信息与模块列表分开取：GetModuleList 内部会再次加锁，不能嵌套持有
+	{
+		std::shared_lock<std::shared_mutex> rlock(g_globalMutex);
+		std::vector<ProcessMap> maps = g_memIO->GetProcessMaps();
+		for (const auto& map : maps) {
+			if (map.Contains(input.address)) {
+				output.regionBase = map.startAddress;
+				output.regionSize = map.length;
+				std::strncpy(output.perms, map.perms.c_str(),
+				             sizeof(output.perms) - 1);
+				break;
+			}
+		}
+	}
+
+	std::vector<ModuleListEntry> modules;
+	GetModuleList(hProcess, modules);
+
+	// 取「起始地址最大且仍覆盖该地址」的模块：嵌套映射下最内层才是真正的归属模块
+	const ModuleListEntry* best = nullptr;
+	for (const auto& m : modules) {
+		if (m.baseAddress == 0 || m.moduleSize == 0) {
+			continue;
+		}
+		if (input.address < m.baseAddress) {
+			continue;
+		}
+		if (input.address >= m.baseAddress + static_cast<uint64_t>(m.moduleSize)) {
+			continue;
+		}
+		if (!best || m.baseAddress > best->baseAddress) {
+			best = &m;
+		}
+	}
+
+	if (best) {
+		output.moduleBase = best->baseAddress;
+		output.moduleSize = best->moduleSize;
+		output.offset = input.address - best->baseAddress;
+		std::strncpy(output.moduleName, best->moduleName.c_str(),
+		             sizeof(output.moduleName) - 1);
+	}
+
+	output.valueType = ScanEngine::Get().SessionValueType();
+	return output.regionSize != 0 || output.moduleBase != 0;
 }

@@ -57,6 +57,9 @@ namespace Gui {
 
 	void addWindow(Window* window);
 
+	// 单窗口模式：请求切换到指定名字的 Tab（下一帧生效）。
+	void requestTab(const std::string& name);
+
 	template <typename T>
 	std::list<T*> getWindows() {
 		std::list<T*> res;

@@ -240,6 +240,30 @@ public:
         return Mem::Result<Mem::UxnClearReceipt>::success(
             Mem::UxnClearReceipt{Mem::TargetSnapshot{42, 7, 1, 1}});
     }
+    Mem::Result<Mem::ScanState> scanFirst(
+        const Mem::OperationContext&,
+        const Mem::ScanFirstRequest&) override {
+        return unavailable<Mem::ScanState>();
+    }
+    Mem::Result<Mem::ScanState> scanNext(
+        const Mem::OperationContext&,
+        const Mem::ScanNextRequest&) override {
+        return unavailable<Mem::ScanState>();
+    }
+    Mem::Result<Mem::ScanPage> scanResults(
+        const Mem::OperationContext&,
+        const Mem::ScanResultsRequest&) override {
+        return unavailable<Mem::ScanPage>();
+    }
+    Mem::Result<Mem::ScanState> scanClear(
+        const Mem::OperationContext&) override {
+        return unavailable<Mem::ScanState>();
+    }
+    Mem::Result<Mem::AddressInfo> addressInfo(
+        const Mem::OperationContext&,
+        const Mem::AddressInfoRequest&) override {
+        return unavailable<Mem::AddressInfo>();
+    }
     Mem::Result<Mem::SymbolTable> loadSymbolTable(
         const Mem::OperationContext&,
         const Mem::SymbolTableRequest&) override {

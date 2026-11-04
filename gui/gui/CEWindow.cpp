@@ -283,27 +283,34 @@ void CEWindow::onDraw()
 void CEWindow::openModulesWindow()
 {
     auto* mw = Gui::getOrCreate<ModulesWindow>(service_);
-    if (mw) mw->triggerAutoRefresh();
+    if (mw) {
+        mw->triggerAutoRefresh();
+        Gui::requestTab(mw->name);
+    }
 }
 
 void CEWindow::openLuaScriptWindow()
 {
 #ifdef HAVE_LUAJIT
-    Gui::getOrCreate<LuaScriptWindow>(service_);
+    auto* lw = Gui::getOrCreate<LuaScriptWindow>(service_);
+    if (lw) Gui::requestTab(lw->name);
 #endif
 }
 
 void CEWindow::openServerConnectWindow()
 {
-    Gui::getOrCreate<ServerConnectWindow>(service_);
+    auto* sw = Gui::getOrCreate<ServerConnectWindow>(service_);
+    if (sw) Gui::requestTab(sw->name);
 }
 
 void CEWindow::openLogWindow()
 {
-    Gui::getOrCreate<LogWindow>();
+    auto* lw = Gui::getOrCreate<LogWindow>();
+    if (lw) Gui::requestTab(lw->name);
 }
 
 void CEWindow::openUxnBreakpointWindow()
 {
-    Gui::getOrCreate<UxnBreakpointWindow>(service_);
+    auto* uw = Gui::getOrCreate<UxnBreakpointWindow>(service_);
+    if (uw) Gui::requestTab(uw->name);
 }

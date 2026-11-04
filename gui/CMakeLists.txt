@@ -147,6 +147,7 @@ set(GUI_SOURCES
     gui/ConfigManager.cpp
     gui/LogWindow.cpp
     gui/AppContext.cpp
+    gui/ScanWindow.cpp
 )
 
 # Lua 脚本引擎（用于复杂分析）
@@ -230,6 +231,7 @@ set(SOCKET_SOURCES
     socket/MemoryCommands.cpp
     socket/BreakpointCommands.cpp
     socket/UxnBreakpointCommands.cpp
+    socket/ScanCommands.cpp
     socket/SymbolCommands.cpp
 )
 

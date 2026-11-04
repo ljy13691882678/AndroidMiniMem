@@ -113,6 +113,23 @@ public:
         const OperationContext& context, uint32_t slot) = 0;
     virtual UxnOperationBackendResult clearUxnBreakpoints(
         const OperationContext& context) = 0;
+
+    // ── 内存扫描 / 地址分析 ──────────────────────────────────────────
+    virtual bool scanFirst(const OperationContext& context,
+                           const ScanFirstRequest& request,
+                           uint64_t& total) = 0;
+    virtual bool scanNext(const OperationContext& context,
+                          const ScanNextRequest& request,
+                          uint64_t& total) = 0;
+    virtual bool scanResults(const OperationContext& context,
+                             const ScanResultsRequest& request,
+                             std::vector<ScanEntry>& entries,
+                             uint64_t& total,
+                             uint32_t& valueType) = 0;
+    virtual bool scanClear(const OperationContext& context) = 0;
+    virtual bool addressInfo(const OperationContext& context,
+                             uint64_t address,
+                             AddressInfo& info) = 0;
 };
 
 } // namespace Mem

@@ -948,6 +948,140 @@ void IpcServer::RegisterBuiltinMethods() {
         }
         return {{"success", true}, {"result", arr}};
     });
+
+    // ── scan_first ─────────────────────────────────────────────
+    RegisterMethod("scan_first", [this](const json& p) -> json {
+        // scan_mode / region_filter 允许取 0，不能用只接受正数的解析函数。
+        auto readRange = [&](const char* key, int def, int lo, int hi) -> int {
+            const int v = getOptionalIntParam(p, key, def);
+            if (v < lo || v > hi) {
+                throw std::invalid_argument(std::string(key) + " out of range");
+            }
+            return v;
+        };
+
+        Mem::ScanFirstRequest request;
+        const int valueType = readRange("value_type", 4, 1, 101);
+        if (valueType != 1 && valueType != 2 && valueType != 4 &&
+            valueType != 8 && valueType != 100 && valueType != 101) {
+            throw std::invalid_argument("value_type must be 1/2/4/8/100/101");
+        }
+        request.valueType = static_cast<uint32_t>(valueType);
+        request.scanMode = static_cast<uint32_t>(readRange("scan_mode", 0, 0, 7));
+        request.alignment = static_cast<uint32_t>(readRange("alignment", 4, 1, 8));
+        request.regionFilter = static_cast<uint32_t>(readRange("region_filter", 0, 0, 1));
+        request.maxResults = static_cast<uint64_t>(readRange("max_results", 0, 0, 0x7FFFFFFF));
+
+        if (p.contains("value")) {
+            const auto& v = p.at("value");
+            if (v.is_number_float()) {
+                request.floatValue = v.get<double>();
+                request.intValue = static_cast<uint64_t>(request.floatValue);
+            } else if (v.is_number()) {
+                request.intValue = v.get<uint64_t>();
+                request.floatValue = static_cast<double>(request.intValue);
+            }
+        }
+
+        auto result = service_->scanFirst(
+            service_->captureContext(true), request);
+        if (!result.ok())
+            return serviceFailure(result.error());
+        return {{"success", true}, {"result", {
+            {"total", result.value().total},
+            {"value_type", result.value().valueType},
+            {"scan_mode", result.value().scanMode}
+        }}};
+    });
+
+    // ── scan_next ──────────────────────────────────────────────
+    RegisterMethod("scan_next", [this](const json& p) -> json {
+        Mem::ScanNextRequest request;
+        const int nextMode = getOptionalIntParam(p, "scan_mode", 5);
+        if (nextMode < 0 || nextMode > 7) {
+            throw std::invalid_argument("scan_mode out of range");
+        }
+        request.scanMode = static_cast<uint32_t>(nextMode);
+        if (p.contains("value")) {
+            const auto& v = p.at("value");
+            if (v.is_number_float()) {
+                request.floatValue = v.get<double>();
+                request.intValue = static_cast<uint64_t>(request.floatValue);
+            } else if (v.is_number()) {
+                request.intValue = v.get<uint64_t>();
+                request.floatValue = static_cast<double>(request.intValue);
+            }
+        }
+
+        auto result = service_->scanNext(
+            service_->captureContext(true), request);
+        if (!result.ok())
+            return serviceFailure(result.error());
+        return {{"success", true}, {"result", {
+            {"total", result.value().total},
+            {"scan_mode", result.value().scanMode}
+        }}};
+    });
+
+    // ── scan_results ───────────────────────────────────────────
+    RegisterMethod("scan_results", [this](const json& p) -> json {
+        Mem::ScanResultsRequest request;
+        const int offsetValue = getOptionalIntParam(p, "offset", 0);
+        if (offsetValue < 0) {
+            throw std::invalid_argument("offset must be non-negative");
+        }
+        request.offset = static_cast<uint64_t>(offsetValue);
+        request.count = getPositiveSizeParam(p, "count", 100u, Mem::kMaxScanPageSize);
+
+        auto result = service_->scanResults(
+            service_->captureContext(true), request);
+        if (!result.ok())
+            return serviceFailure(result.error());
+
+        json arr = json::array();
+        for (const auto& item : result.value().items) {
+            arr.push_back({{"address", formatAddress(item.address)},
+                           {"int_value", item.intValue},
+                           {"float_value", item.floatValue}});
+        }
+        return {{"success", true}, {"result", {
+            {"total", result.value().total},
+            {"value_type", result.value().valueType},
+            {"items", arr}
+        }}};
+    });
+
+    // ── scan_clear ─────────────────────────────────────────────
+    RegisterMethod("scan_clear", [this](const json&) -> json {
+        auto result = service_->scanClear(
+            service_->captureContext(false));
+        if (!result.ok())
+            return serviceFailure(result.error());
+        return {{"success", true}, {"result", {{"total", 0}}}};
+    });
+
+    // ── address_info ───────────────────────────────────────────
+    RegisterMethod("address_info", [this](const json& p) -> json {
+        Mem::AddressInfoRequest request;
+        request.address = ParseAddress(p, "address");
+
+        auto result = service_->addressInfo(
+            service_->captureContext(true), request);
+        if (!result.ok())
+            return serviceFailure(result.error());
+
+        const auto& info = result.value();
+        return {{"success", true}, {"result", {
+            {"address", formatAddress(info.address)},
+            {"module", info.moduleName},
+            {"module_base", formatAddress(info.moduleBase)},
+            {"module_size", info.moduleSize},
+            {"offset", formatAddress(info.offset)},
+            {"region_base", formatAddress(info.regionBase)},
+            {"region_size", info.regionSize},
+            {"perms", info.perms}
+        }}};
+    });
     // ── set_breakpoint ────────────────────────────────────────────
     RegisterMethod("set_breakpoint", [this](const json& p) -> json {
         uint64_t addr = ParseAddress(p, "address");

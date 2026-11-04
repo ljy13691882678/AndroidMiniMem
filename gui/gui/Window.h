@@ -17,6 +17,8 @@ public:
 	virtual void onDraw() {}
 	virtual unsigned int getWindowFlags() const { return 0; }
 	virtual void draw();
+	// 单窗口模式：不建独立 ImGui 窗口，直接把内容画进当前 Tab。
+	void drawInline();
 	void operator()();
 
 	// 便捷方法

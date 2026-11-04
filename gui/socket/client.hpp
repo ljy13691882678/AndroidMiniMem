@@ -63,6 +63,13 @@
 #define CMD_KERNEL_UXN_STATUS        28
 #define CMD_KERNEL_UXN_CLEAR         29
 
+// —— 内存扫描 / 地址分析 ——
+#define CMD_SCAN_FIRST               30
+#define CMD_SCAN_NEXT                31
+#define CMD_SCAN_RESULTS             32
+#define CMD_SCAN_CLEAR               33
+#define CMD_ADDRESS_INFO             34
+
 
 #pragma pack(1)
 struct CeVersion {
@@ -100,6 +107,53 @@ struct CeWriteProcessMemoryOutput {
 
 struct CeReadProcessMemoryOutput {
     int read;
+};
+
+// —— 内存扫描 / 地址分析（与 engine/ceserver/ceserver.h 保持逐字节一致）——
+struct CeScanFirstInput {
+    uint32_t valueType;
+    uint32_t scanMode;
+    uint32_t alignment;
+    uint32_t regionFilter;
+    uint64_t intValue;
+    double   floatValue;
+    uint64_t maxResults;
+};
+
+struct CeScanNextInput {
+    uint32_t scanMode;
+    uint32_t reserved;
+    uint64_t intValue;
+    double   floatValue;
+};
+
+struct CeScanResultsInput {
+    uint64_t offset;
+    uint32_t count;
+    uint32_t reserved;
+};
+
+struct CeScanResultEntry {
+    uint64_t address;
+    uint64_t intValue;
+    double   floatValue;
+};
+
+struct CeAddressInfoInput {
+    uint64_t address;
+};
+
+struct CeAddressInfoOutput {
+    uint64_t address;
+    uint64_t moduleBase;
+    uint64_t moduleSize;
+    uint64_t offset;
+    uint64_t regionBase;
+    uint64_t regionSize;
+    char     moduleName[256];
+    char     perms[8];
+    uint32_t valueType;
+    uint32_t reserved;
 };
 
 struct _user_pt_regs {

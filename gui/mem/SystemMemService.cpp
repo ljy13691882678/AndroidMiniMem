@@ -4,6 +4,7 @@
 #include "MemService.h"
 #include "../gui/AppContext.h"
 #include "../socket/SocketCommand.h"
+#include "../socket/ScanCommands.h"
 #include "../socket/client_singleton.h"
 
 #include <algorithm>
@@ -636,6 +637,107 @@ public:
             return {};
         }
         return toUxnBackendResult(ClearUxnBreakpointsTracked(PORT_MAIN));
+    }
+
+    // ── 内存扫描 / 地址分析 ──────────────────────────────────────────
+    bool scanFirst(const OperationContext& context,
+                   const ScanFirstRequest& request,
+                   uint64_t& total) override {
+        SocketCommand::TransactionLease transaction(PORT_MAIN);
+        if (!transaction ||
+            transaction.generation() != context.connectionGeneration) {
+            return false;
+        }
+        CeScanFirstInput input{};
+        input.valueType = request.valueType;
+        input.scanMode = request.scanMode;
+        input.alignment = request.alignment;
+        input.regionFilter = request.regionFilter;
+        input.intValue = request.intValue;
+        input.floatValue = request.floatValue;
+        input.maxResults = request.maxResults;
+
+        int32_t errorCode = 0;
+        return ScanFirstRaw(input, 0, total, errorCode, PORT_MAIN);
+    }
+
+    bool scanNext(const OperationContext& context,
+                  const ScanNextRequest& request,
+                  uint64_t& total) override {
+        SocketCommand::TransactionLease transaction(PORT_MAIN);
+        if (!transaction ||
+            transaction.generation() != context.connectionGeneration) {
+            return false;
+        }
+        CeScanNextInput input{};
+        input.scanMode = request.scanMode;
+        input.reserved = 0;
+        input.intValue = request.intValue;
+        input.floatValue = request.floatValue;
+
+        int32_t errorCode = 0;
+        return ScanNextRaw(input, total, errorCode, PORT_MAIN);
+    }
+
+    bool scanResults(const OperationContext& context,
+                     const ScanResultsRequest& request,
+                     std::vector<ScanEntry>& entries,
+                     uint64_t& total,
+                     uint32_t& valueType) override {
+        entries.clear();
+        total = 0;
+        valueType = 0;
+        SocketCommand::TransactionLease transaction(PORT_MAIN);
+        if (!transaction ||
+            transaction.generation() != context.connectionGeneration) {
+            return false;
+        }
+
+        std::vector<CeScanResultEntry> raw;
+        if (!ScanResultsRaw(request.offset, request.count, raw, total,
+                            valueType, PORT_MAIN)) {
+            return false;
+        }
+        entries.reserve(raw.size());
+        for (const auto& item : raw) {
+            entries.push_back(ScanEntry{item.address, item.intValue, item.floatValue});
+        }
+        return true;
+    }
+
+    bool scanClear(const OperationContext& context) override {
+        SocketCommand::TransactionLease transaction(PORT_MAIN);
+        if (!transaction ||
+            transaction.generation() != context.connectionGeneration) {
+            return false;
+        }
+        return ScanClearRaw(PORT_MAIN);
+    }
+
+    bool addressInfo(const OperationContext& context,
+                     uint64_t address,
+                     AddressInfo& info) override {
+        info = {};
+        SocketCommand::TransactionLease transaction(PORT_MAIN);
+        if (!transaction ||
+            transaction.generation() != context.connectionGeneration) {
+            return false;
+        }
+
+        CeAddressInfoOutput raw{};
+        if (!AddressInfoRaw(address, 0, raw, PORT_MAIN)) {
+            return false;
+        }
+        info.address = raw.address;
+        info.moduleBase = raw.moduleBase;
+        info.moduleSize = raw.moduleSize;
+        info.offset = raw.offset;
+        info.regionBase = raw.regionBase;
+        info.regionSize = raw.regionSize;
+        info.moduleName.assign(raw.moduleName,
+                               strnlen(raw.moduleName, sizeof(raw.moduleName)));
+        info.perms.assign(raw.perms, strnlen(raw.perms, sizeof(raw.perms)));
+        return true;
     }
 };
 

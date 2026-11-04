@@ -12,7 +12,7 @@ from typing import Any, Optional
 # 耗时操作使用更长超时
 _SLOW_METHODS = frozenset({
     "list_processes", "list_modules", "execute_lua", "query_hwbp_slots",
-    "uxn_wait",
+    "uxn_wait", "scan_first", "scan_next",
 })
 
 _RETRYABLE_METHODS = frozenset({

@@ -117,6 +117,7 @@ add_library(server_core STATIC
     ${CMAKE_SOURCE_DIR}/ceserver/CEServer.cpp
     ${CMAKE_SOURCE_DIR}/ceserver/porthelp.cpp
     ${CMAKE_SOURCE_DIR}/ceserver/api.cpp
+    ${CMAKE_SOURCE_DIR}/ceserver/ScanEngine.cpp
     ${CMAKE_SOURCE_DIR}/android/ParadiseKernelDriver.cpp
 )
 

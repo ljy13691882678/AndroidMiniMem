@@ -1,9 +1,13 @@
 #include "Gui.h"
 #include "Window.h"
+#include "AppContext.h"
 #include "CEWindow.h"
 #include "ServerConnectWindow.h"
 #include "ModulesWindow.h"
 #include "LogWindow.h"
+#include "UxnBreakpointWindow.h"
+#include "VersionWindow.h"
+#include "ScanWindow.h"
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_internal.h"
 #include <exception>
@@ -27,34 +31,8 @@ namespace Gui {
 		std::thread::id guiThreadId;
 		bool exitRequested = false;
 
-		bool drawDockSpace()
-		{
-			if (!(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DockingEnable)) {
-				return false;
-			}
-			const ImGuiViewport* viewport = ImGui::GetMainViewport();
-			const ImGuiID dockspaceId = ImGui::GetID("MiniMemDockSpace");
-			// 仅在没有保存的停靠布局时建立默认布局，保留用户的拆分和拖出状态。
-			const bool createLayout = ImGui::DockBuilderGetNode(dockspaceId) == nullptr;
-			if (createLayout) {
-				ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-				ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
-				ImGuiID center = dockspaceId;
-				const ImGuiID left = ImGui::DockBuilderSplitNode(
-					center, ImGuiDir_Left, 0.28f, nullptr, &center);
-				const ImGuiID bottom = ImGui::DockBuilderSplitNode(
-					center, ImGuiDir_Down, 0.25f, nullptr, &center);
-				ImGui::DockBuilderDockWindow("服务器连接", left);
-				ImGui::DockBuilderDockWindow("MiniMem", center);
-				ImGui::DockBuilderDockWindow("日志", bottom);
-#ifdef HAVE_LUAJIT
-				ImGui::DockBuilderDockWindow("Lua脚本管理器", center);
-#endif
-				ImGui::DockBuilderFinish(dockspaceId);
-			}
-			ImGui::DockSpaceOverViewport(dockspaceId, viewport);
-			return createLayout;
-		}
+		// 单窗口模式：待切换的 Tab（下一帧生效后清空）。
+		std::string requestedTab;
 
 		void runPendingTasks()
 		{
@@ -106,11 +84,18 @@ namespace Gui {
 			return;
 
 		int& count = totalWindows[window->name];
-		if (count > 0)
+		if (count > 0) {
 			window->name = window->name + " " + std::to_string(count + 1);
+		}
 		count++;
 
 		windows.emplace_back(window);
+	}
+
+	void requestTab(const std::string& name)
+	{
+		std::lock_guard<std::mutex> lock(tasksMutex);
+		requestedTab = name;
 	}
 
 	void requestExit()
@@ -129,37 +114,84 @@ namespace Gui {
 		static bool bootstrapped = false;
 		if (!bootstrapped) {
 			if (windows.empty()) {
+				Gui::addWindow(new ScanWindow(service));
 				Gui::addWindow(new CEWindow(service));
 				Gui::addWindow(new ServerConnectWindow(service));
-				Gui::addWindow(new LogWindow());
-				
+				Gui::addWindow(new ModulesWindow(service));
+				Gui::addWindow(new UxnBreakpointWindow(service));
 #ifdef HAVE_LUAJIT
 				Gui::addWindow(new LuaScriptWindow(service));
 #endif
+				Gui::addWindow(new LogWindow());
+				Gui::addWindow(new VersionWindow(service));
 			}
-			Gui::log("欢迎使用 MiniMem，请先在「服务器连接」窗口连接设备");
+			Gui::log("欢迎使用 MiniMem，请先在「连接」页连上设备");
+			Gui::requestTab("内存扫描");
 			bootstrapped = true;
 		}
 
-		const bool defaultLayoutCreated = drawDockSpace();
+		// ── 单窗口布局：一个全屏主窗口 + 顶部 Tab ──
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->WorkPos);
+		ImGui::SetNextWindowSize(viewport->WorkSize);
+		const ImGuiWindowFlags mainFlags =
+			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+			ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+			ImGuiWindowFlags_NoBringToFrontOnFocus |
+			ImGuiWindowFlags_NoScrollbar;
 
-		bool hasOpenWindow = false;
-		for (auto it = windows.begin(); it != windows.end(); ++it)
+		ImGui::Begin("MiniMem###MiniMemMain", nullptr, mainFlags);
+
+		// 顶栏：版本与当前目标，便于一眼确认状态
+		ImGui::TextUnformatted("MiniMem  Android Memory Debugger");
+		ImGui::SameLine();
+		ImGui::TextDisabled("|");
+		ImGui::SameLine();
+		ImGui::Text("PID %d  %s", AppContext::Get().selectedPid.load(),
+		            AppContext::Get().getSelectedName().c_str());
+
+		std::string wanted;
 		{
-			Window* w = it->get();
-			if (!w) {
-				continue;
-			}
-			// 只绘制打开的窗口，但不删除关闭的窗口（保留状态和指针有效性）
-			if (w->pOpen) {
-				(*w)();
-				hasOpenWindow = hasOpenWindow || w->pOpen;
-			}
+			std::lock_guard<std::mutex> lock(tasksMutex);
+			wanted = requestedTab;
 		}
-		if (defaultLayoutCreated) {
-			ImGui::SetWindowFocus("MiniMem");
+
+		// ImGui 的 Tab 在首次提交那一帧可能还没注册，SetSelected 会被默认选中覆盖，
+		// 因此切换请求保持若干帧，确保真正生效。
+		static std::string lastWanted;
+		static int applyFrames = 0;
+		if (wanted != lastWanted) {
+			lastWanted = wanted;
+			applyFrames = 3;
 		}
-		return !exitRequested && hasOpenWindow;
+		const bool applyTab = applyFrames > 0;
+
+		if (ImGui::BeginTabBar("##MiniMemMainTabs",
+		                       ImGuiTabBarFlags_Reorderable)) {
+			for (auto it = windows.begin(); it != windows.end(); ++it) {
+				Window* w = it->get();
+				if (!w) {
+					continue;
+				}
+				const ImGuiTabItemFlags tabFlags =
+					(applyTab && wanted == w->name)
+						? ImGuiTabItemFlags_SetSelected
+						: ImGuiTabItemFlags_None;
+				if (ImGui::BeginTabItem(w->name.c_str(), nullptr, tabFlags)) {
+					w->drawInline();
+					ImGui::EndTabItem();
+				}
+			}
+			ImGui::EndTabBar();
+		}
+
+		ImGui::End();
+
+		if (applyFrames > 0) {
+			--applyFrames;
+		}
+
+		return !exitRequested;
 	}
 
 	void shutdown()
@@ -170,7 +202,7 @@ namespace Gui {
 		}
 		runPendingTasks();
 		windows.clear();
-		// LuaScriptWindow 析构会等待后台脚本退出，期间可能产生最后一批任务。
+		// LuaScriptWindow 析构会等待后台脚本退出，期间只能产生最后一批任务。
 		runPendingTasks();
 		windows.clear();
 		std::lock_guard<std::mutex> lock(tasksMutex);

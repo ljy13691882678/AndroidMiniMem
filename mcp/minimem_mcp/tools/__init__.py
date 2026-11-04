@@ -8,7 +8,7 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from ..ipc_client import IpcClient
-from . import breakpoint_, lua, memory, process, status, symbols
+from . import breakpoint_, lua, memory, process, scan, status, symbols
 
 
 def register_all(mcp: FastMCP, ipc: IpcClient) -> None:
@@ -16,6 +16,7 @@ def register_all(mcp: FastMCP, ipc: IpcClient) -> None:
     status.register(mcp, ipc)
     process.register(mcp, ipc)
     memory.register(mcp, ipc)
+    scan.register(mcp, ipc)
     breakpoint_.register(mcp, ipc)
     lua.register(mcp, ipc)
     symbols.register(mcp, ipc)

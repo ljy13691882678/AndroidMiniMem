@@ -23,6 +23,11 @@ void Window::operator()()
     draw();
 }
 
+void Window::drawInline()
+{
+    onDraw();
+}
+
 bool Window::hasProcess() const {
     return AppContext::Get().hasProcess();
 }
