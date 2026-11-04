@@ -98,9 +98,11 @@ struct AppWindow::Impl {
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-        io.ConfigViewportsNoAutoMerge = true;
-        io.ConfigViewportsNoTaskBarIcon = false;
+        // 单窗口 UI：明确关闭多视口。开启 ViewportsEnable 时，任何被拖出的
+        // ImGui 窗口都会变成独立系统窗口，表现为多出一块空白/白屏窗口。
+        io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+        io.ConfigViewportsNoAutoMerge = false;
+        io.ConfigViewportsNoTaskBarIcon = true;
         ImGui::StyleColorsDark();
 
         StyleSetup::setupImGuiStyle(mainScale);

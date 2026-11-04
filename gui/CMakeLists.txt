@@ -306,6 +306,13 @@ add_executable(MiniMemClient
     ${LUA_SOURCES}
 )
 
+# Windows 下用 GUI 子系统，避免启动时弹出黑色控制台窗口。
+# 入口仍是标准 main()，因此显式指定 CRT 入口，不改成 WinMain。
+if(WIN32)
+    set_target_properties(MiniMemClient PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_link_options(MiniMemClient PRIVATE /ENTRY:mainCRTStartup)
+endif()
+
 target_compile_definitions(MiniMemClient PRIVATE
     IMGUI_DISABLE_DEBUG_TOOLS
     ${PLATFORM_DEFINITION}
