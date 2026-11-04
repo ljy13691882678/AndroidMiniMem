@@ -87,12 +87,8 @@ void ServerConnectWindow::initializeDriver()
 	std::string cardKey = std::string(cardKeyBuf);
 	std::string kernelVersion = std::string(1, KernelVersionBuf);
 
-	if (cardKey.empty()) {
-		driverStatus = "初始化失败: 卡密不能为空";
-		Gui::log("驱动初始化失败: 卡密不能为空");
-		return;
-	}
-
+	// Paradise 驱动没有卡密/授权校验，engine 侧也忽略该参数。
+	// 这里只做兼容性保留：允许为空，填了也不会影响初始化结果。
 	saveConfig();
 	
 	Gui::log("正在初始化驱动");
@@ -178,13 +174,14 @@ void ServerConnectWindow::drawDriverControls() {
     updateMemType();
   }
 
-  // 卡密输入和驱动初始化
-  ImGui::InputText("卡密", cardKeyBuf, IM_ARRAYSIZE(cardKeyBuf),
-                   ImGuiInputTextFlags_Password);
+  // 授权串：Paradise 驱动无卡密校验，engine 侧忽略该值，仅保留输入位以兼容旧配置
+  ImGui::InputTextWithHint("授权串", "Paradise 模式忽略", cardKeyBuf,
+                           IM_ARRAYSIZE(cardKeyBuf),
+                           ImGuiInputTextFlags_Password);
   if (ImGui::IsItemDeactivatedAfterEdit()) {
     saveConfig();
   }
-  // 列表显示5 6
+  // 内核版本选择：Paradise loader 按内核大版本区分，仍保留该选项
   const char *kernelVersionList[] = {"5系", "6系"};
   int currentKernelVersion = (KernelVersionBuf == '5') ? 0 : 1;
   ImGui::PushItemWidth(100);
